@@ -1,7 +1,11 @@
-"""Fluent builder for LLM message arrays."""
+"""llm-message-builder: fluent builder for LLM conversation message lists."""
 
-from __future__ import annotations
+from .core import (
+    MessageBuilder,
+    MessageBuilderError,
+)
 
-from .core import Message, MessageBuilder, Role
-
-__all__ = ["Message", "MessageBuilder", "Role"]
+__all__ = [
+    "MessageBuilder",
+    "MessageBuilderError",
+]

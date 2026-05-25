@@ -1,8 +1,8 @@
 # llm-message-builder
 
-Fluent builder for LLM message arrays (system, user, assistant, tool).
+Fluent builder for LLM conversation message lists — Anthropic content blocks, tool_use/tool_result pairs.
 
-Build the `messages` list expected by Anthropic, OpenAI, and compatible APIs without manually constructing dicts.
+Zero dependencies. Python 3.10+. MIT.
 
 ## Install
 
@@ -10,7 +10,7 @@ Build the `messages` list expected by Anthropic, OpenAI, and compatible APIs wit
 pip install llm-message-builder
 ```
 
-## Quick start
+## Usage
 
 ```python
 from llm_message_builder import MessageBuilder
@@ -18,50 +18,73 @@ from llm_message_builder import MessageBuilder
 messages = (
     MessageBuilder()
     .system("You are a helpful assistant.")
-    .user("What is 2+2?")
-    .assistant("4.")
-    .user("And 3×3?")
+    .user("What is the capital of France?")
+    .assistant("Paris.")
     .build()
 )
 # [
-#   {"role": "system",    "content": "You are a helpful assistant."},
-#   {"role": "user",      "content": "What is 2+2?"},
-#   {"role": "assistant", "content": "4."},
-#   {"role": "user",      "content": "And 3×3?"},
+#   {"role": "system", "content": "You are a helpful assistant."},
+#   {"role": "user", "content": "What is the capital of France?"},
+#   {"role": "assistant", "content": "Paris."},
 # ]
 ```
 
-## API
-
-### `MessageBuilder`
-
-| Method | Description |
-|--------|-------------|
-| `system(content)` | Append a system message |
-| `user(content)` | Append a user message |
-| `assistant(content)` | Append an assistant message |
-| `tool(content)` | Append a tool-result message |
-| `add(role, content)` | Append with any `Role` |
-| `build()` | Return `list[dict[str, str]]` |
-| `build_objects()` | Return `list[Message]` |
-| `count(role=None)` | Message count, optionally by role |
-| `first()` / `last()` | First / last message, or `None` |
-| `filter_by_role(role)` | Messages with that role |
-| `messages()` | Copy of message list |
-| `pop()` | Remove and return last message |
-| `clear()` | Remove all messages; returns `self` |
-| `MessageBuilder.from_list(raw)` | Load from existing list of dicts |
-
-### `Role`
-
-`SYSTEM` · `USER` · `ASSISTANT` · `TOOL`
-
-### `Message`
+## Tool use (Anthropic)
 
 ```python
-m = Message(role=Role.USER, content="hello")
-m.to_dict()          # {"role": "user", "content": "hello"}
-Message.from_dict(d) # reconstruct
+messages = (
+    MessageBuilder()
+    .system("You are helpful.")
+    .user("Search for Python.")
+    .assistant_tool_use("call_1", "web_search", {"q": "Python"})
+    .user_tool_result("call_1", "Python is a programming language.")
+    .assistant("Python is a general-purpose language.")
+    .build()
+)
+```
+
+## Content blocks
+
+```python
+# User message with mixed blocks
+builder.user_blocks([
+    {"type": "text", "text": "Look at this:"},
+    {"type": "image", "source": {"type": "base64", ...}},
+])
+
+# Assistant with text before tool_use
+builder.assistant_tool_use(
+    "call_1", "search", {"q": "query"},
+    text="Let me search for that."
+)
+
+# Tool result as error
+builder.user_tool_result("call_1", "timeout", is_error=True)
+```
+
+## Copy / extend / reset
+
+```python
+base = MessageBuilder().system("You are helpful.")
+
+# Fork for different conversations
+conv_a = base.copy().user("Question A").assistant("Answer A")
+conv_b = base.copy().user("Question B").assistant("Answer B")
+
+# Extend with pre-built messages
+builder.extend([{"role": "user", "content": "appended"}])
+
+# Reset
+builder.reset()
+```
+
+## Inspect
+
+```python
+builder.count()   # number of messages
+builder.roles()   # ["system", "user", "assistant", ...]
+builder.last()    # last message dict (deep copy)
+len(builder)      # same as count()
 ```
 
 ## License

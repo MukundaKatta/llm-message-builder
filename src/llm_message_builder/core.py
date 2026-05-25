@@ -1,186 +1,111 @@
-"""Fluent builder for LLM message arrays.
-
-Build the ``messages`` list expected by Anthropic, OpenAI, and compatible
-APIs without manually constructing dicts.
-
-:class:`MessageBuilder` provides a chainable API: call :meth:`~MessageBuilder.system`,
-:meth:`~MessageBuilder.user`, :meth:`~MessageBuilder.assistant`,
-or :meth:`~MessageBuilder.tool` to append turns, then :meth:`~MessageBuilder.build`
-to get the final list of dicts.  Each dict has ``"role"`` and ``"content"`` keys.
-"""
+"""Fluent builder for LLM conversation message lists."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
+import copy
 from typing import Any
 
 
-class Role(str, Enum):
-    """LLM conversation roles.
-
-    Values match the wire-format strings used by Anthropic and OpenAI.
-    """
-
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-    TOOL = "tool"
-
-
-@dataclass
-class Message:
-    """A single conversation turn.
-
-    Attributes:
-        role: Speaker role.
-        content: Text content of the turn.
-    """
-
-    role: Role
-    content: str
-
-    def to_dict(self) -> dict[str, str]:
-        """Return ``{"role": ..., "content": ...}``."""
-        return {"role": self.role.value, "content": self.content}
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Message:
-        """Reconstruct a :class:`Message` from a plain dict."""
-        return cls(role=Role(data["role"]), content=str(data["content"]))
-
-    def __repr__(self) -> str:
-        preview = self.content[:40] + "..." if len(self.content) > 40 else self.content
-        return f"Message(role={self.role.value!r}, content={preview!r})"
+class MessageBuilderError(Exception):
+    """Raised on invalid message construction."""
 
 
 class MessageBuilder:
-    """Fluent builder for an ordered list of :class:`Message` objects.
+    """Build a list of LLM conversation messages with a fluent interface."""
 
-    Example::
+    def __init__(self, messages=None):
+        self._messages = copy.deepcopy(messages) if messages else []
 
-        messages = (
-            MessageBuilder()
-            .system("You are a helpful assistant.")
-            .user("What is 2+2?")
-            .assistant("4.")
-            .user("And 3+3?")
-            .build()
-        )
-        # [{"role": "system", ...}, {"role": "user", ...}, ...]
-    """
+    def system(self, content):
+        return self._add("system", content)
 
-    def __init__(self) -> None:
-        self._messages: list[Message] = []
+    def user(self, content):
+        return self._add("user", content)
 
-    # ------------------------------------------------------------------
-    # Fluent append methods
-    # ------------------------------------------------------------------
+    def assistant(self, content):
+        return self._add("assistant", content)
 
-    def add(self, role: Role, content: str) -> MessageBuilder:
-        """Append a message with any :class:`Role`."""
-        self._messages.append(Message(role=role, content=content))
-        return self
+    def user_blocks(self, blocks):
+        self._validate_blocks(blocks)
+        return self._add("user", copy.deepcopy(blocks))
 
-    def system(self, content: str) -> MessageBuilder:
-        """Append a system message."""
-        return self.add(Role.SYSTEM, content)
+    def assistant_blocks(self, blocks):
+        self._validate_blocks(blocks)
+        return self._add("assistant", copy.deepcopy(blocks))
 
-    def user(self, content: str) -> MessageBuilder:
-        """Append a user message."""
-        return self.add(Role.USER, content)
+    def assistant_tool_use(self, tool_use_id, name, input_data=None, *, text=None):
+        if not tool_use_id:
+            raise MessageBuilderError("tool_use_id must not be empty")
+        if not name:
+            raise MessageBuilderError("tool name must not be empty")
+        blocks = []
+        if text is not None:
+            blocks.append({"type": "text", "text": text})
+        blocks.append({
+            "type": "tool_use",
+            "id": tool_use_id,
+            "name": name,
+            "input": input_data or {},
+        })
+        return self._add("assistant", blocks)
 
-    def assistant(self, content: str) -> MessageBuilder:
-        """Append an assistant message."""
-        return self.add(Role.ASSISTANT, content)
+    def user_tool_result(self, tool_use_id, content, *, is_error=False):
+        if not tool_use_id:
+            raise MessageBuilderError("tool_use_id must not be empty")
+        block = {
+            "type": "tool_result",
+            "tool_use_id": tool_use_id,
+            "content": content,
+        }
+        if is_error:
+            block["is_error"] = True
+        return self._add("user", [block])
 
-    def tool(self, content: str) -> MessageBuilder:
-        """Append a tool-result message."""
-        return self.add(Role.TOOL, content)
+    def add(self, role, content):
+        if not role:
+            raise MessageBuilderError("role must not be empty")
+        return self._add(role, content)
 
-    # ------------------------------------------------------------------
-    # Inspection
-    # ------------------------------------------------------------------
+    def last(self):
+        return copy.deepcopy(self._messages[-1]) if self._messages else None
 
-    def count(self, role: Role | None = None) -> int:
-        """Number of messages, optionally filtered by *role*."""
-        if role is None:
-            return len(self._messages)
-        return sum(1 for m in self._messages if m.role is role)
+    def count(self):
+        return len(self._messages)
 
-    def last(self) -> Message | None:
-        """Return the most recently added message, or ``None``."""
-        return self._messages[-1] if self._messages else None
+    def roles(self):
+        return [m["role"] for m in self._messages]
 
-    def first(self) -> Message | None:
-        """Return the first message, or ``None``."""
-        return self._messages[0] if self._messages else None
+    def build(self):
+        return copy.deepcopy(self._messages)
 
-    def filter_by_role(self, role: Role) -> list[Message]:
-        """Return all messages with *role*, in insertion order."""
-        return [m for m in self._messages if m.role is role]
+    def copy(self):
+        return MessageBuilder(self._messages)
 
-    def messages(self) -> list[Message]:
-        """Return a copy of the message list."""
-        return list(self._messages)
-
-    # ------------------------------------------------------------------
-    # Mutation
-    # ------------------------------------------------------------------
-
-    def pop(self) -> Message:
-        """Remove and return the last message.
-
-        Raises:
-            IndexError: If the builder has no messages.
-        """
-        if not self._messages:
-            raise IndexError("No messages to pop.")
-        return self._messages.pop()
-
-    def clear(self) -> MessageBuilder:
-        """Remove all messages and return ``self``."""
+    def reset(self):
         self._messages.clear()
         return self
 
-    # ------------------------------------------------------------------
-    # Build
-    # ------------------------------------------------------------------
-
-    def build(self) -> list[dict[str, str]]:
-        """Return the messages as a list of ``{"role": ..., "content": ...}`` dicts."""
-        return [m.to_dict() for m in self._messages]
-
-    def build_objects(self) -> list[Message]:
-        """Return a copy of the messages as :class:`Message` objects."""
-        return list(self._messages)
-
-    # ------------------------------------------------------------------
-    # Class methods
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def from_list(cls, messages: list[dict[str, Any]]) -> MessageBuilder:
-        """Construct a :class:`MessageBuilder` from an existing list of dicts.
-
-        Args:
-            messages: List of ``{"role": ..., "content": ...}`` dicts.
-
-        Returns:
-            A new :class:`MessageBuilder` with those messages loaded.
-        """
-        builder = cls()
+    def extend(self, messages):
         for m in messages:
-            builder._messages.append(Message.from_dict(m))
-        return builder
+            if "role" not in m or "content" not in m:
+                raise MessageBuilderError("each message must have 'role' and 'content'")
+        self._messages.extend(copy.deepcopy(messages))
+        return self
 
-    # ------------------------------------------------------------------
-    # Dunder
-    # ------------------------------------------------------------------
+    def _add(self, role, content):
+        self._messages.append({"role": role, "content": content})
+        return self
 
-    def __len__(self) -> int:
+    @staticmethod
+    def _validate_blocks(blocks):
+        if not isinstance(blocks, list):
+            raise MessageBuilderError("blocks must be a list of dicts")
+        for block in blocks:
+            if not isinstance(block, dict):
+                raise MessageBuilderError("each block must be a dict")
+
+    def __len__(self):
         return len(self._messages)
 
-    def __repr__(self) -> str:
-        roles = [m.role.value for m in self._messages]
-        return f"MessageBuilder(messages={roles!r})"
+    def __repr__(self):
+        return f"MessageBuilder(count={len(self._messages)})"
