@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
 
 
 class MessageBuilderError(Exception):
@@ -41,12 +40,14 @@ class MessageBuilder:
         blocks = []
         if text is not None:
             blocks.append({"type": "text", "text": text})
-        blocks.append({
-            "type": "tool_use",
-            "id": tool_use_id,
-            "name": name,
-            "input": input_data or {},
-        })
+        blocks.append(
+            {
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": name,
+                "input": input_data or {},
+            }
+        )
         return self._add("assistant", blocks)
 
     def user_tool_result(self, tool_use_id, content, *, is_error=False):
