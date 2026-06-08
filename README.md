@@ -1,8 +1,18 @@
 # llm-message-builder
 
+[![CI](https://github.com/MukundaKatta/llm-message-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/MukundaKatta/llm-message-builder/actions/workflows/ci.yml)
+
 Fluent builder for LLM conversation message lists — Anthropic content blocks, tool_use/tool_result pairs.
 
-Zero dependencies. Python 3.10+. MIT.
+Zero runtime dependencies. Python 3.10+. Fully type-hinted (ships `py.typed`). MIT.
+
+## Why
+
+Hand-assembling the `messages` list that chat APIs expect is fiddly: you end up
+juggling role/content dicts, nested content blocks, and matching
+`tool_use`/`tool_result` ids by hand. `MessageBuilder` gives you a small,
+chainable API for that, and it deep-copies data in and out so a builder never
+shares mutable state with your code (see [Isolation guarantees](#isolation-guarantees)).
 
 ## Install
 
@@ -85,6 +95,62 @@ builder.count()   # number of messages
 builder.roles()   # ["system", "user", "assistant", ...]
 builder.last()    # last message dict (deep copy)
 len(builder)      # same as count()
+```
+
+## API reference
+
+All mutating methods return the builder, so calls can be chained.
+
+| Method | Description |
+| --- | --- |
+| `MessageBuilder(messages=None)` | Create a builder, optionally seeded with a list of pre-built messages (deep-copied). |
+| `.system(content)` | Append a `system` message. |
+| `.user(content)` | Append a `user` message. |
+| `.assistant(content)` | Append an `assistant` message. |
+| `.user_blocks(blocks)` | Append a `user` message whose content is a list of content-block dicts. |
+| `.assistant_blocks(blocks)` | Append an `assistant` message whose content is a list of content-block dicts. |
+| `.assistant_tool_use(tool_use_id, name, input_data=None, *, text=None)` | Append an `assistant` message that invokes a tool, with an optional leading text block. |
+| `.user_tool_result(tool_use_id, content, *, is_error=False)` | Append a `user` message carrying a tool's result, optionally marked as an error. |
+| `.add(role, content)` | Append a message with an arbitrary (non-empty) role. |
+| `.extend(messages)` | Append several pre-built messages; each must have `role` and `content`. |
+| `.copy()` | Return an independent deep copy of the builder. |
+| `.reset()` | Remove all messages. |
+| `.build()` | Return a deep copy of the accumulated message list. |
+| `.last()` | Return a deep copy of the last message, or `None`. |
+| `.count()` / `len(builder)` | Number of messages. |
+| `.roles()` | Ordered list of message roles. |
+
+Invalid construction raises `MessageBuilderError` (a subclass of `Exception`),
+for example an empty `role`, an empty `tool_use_id`, content blocks that are not
+a list of dicts, or messages missing `role`/`content` in `.extend()`.
+
+## Isolation guarantees
+
+The builder owns its internal list and never shares mutable references with
+caller code:
+
+- **On input** — `MessageBuilder(messages)`, `.extend()`, `.user_blocks()`,
+  `.assistant_blocks()`, `.assistant_tool_use(input_data=...)` and
+  `.user_tool_result(content=...)` all deep-copy their arguments, so mutating
+  the original objects afterward does not change the builder.
+- **On output** — `.build()`, `.last()` and `.copy()` all return deep copies,
+  so mutating the result does not change the builder.
+
+## Development
+
+The test suite uses only the Python standard library (`unittest`), so no
+third-party packages are required to run it:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Linting/formatting is done with [ruff](https://docs.astral.sh/ruff/):
+
+```bash
+pip install ruff
+ruff check src/ tests/
+ruff format --check src/ tests/
 ```
 
 ## License

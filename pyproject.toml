@@ -21,8 +21,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Tests use only the standard-library ``unittest`` module, so the dev extra
+# only carries the linter/formatter.
 dev = [
-    "pytest>=7",
     "ruff>=0.6",
 ]
 
